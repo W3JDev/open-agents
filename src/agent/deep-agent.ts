@@ -65,11 +65,11 @@ export const deepAgent = new ToolLoopAgent({
   },
   stopWhen: stepCountIs(50),
   callOptionsSchema,
-  prepareStep: ({ messages, ...rest }) => ({
+  prepareStep: ({ messages, model, ...rest }) => ({
     ...rest,
-    messages: addCacheControlToMessages(messages),
+    messages: addCacheControlToMessages(messages, model),
   }),
-  prepareCall: ({ options, ...settings }) => {
+  prepareCall: ({ options, model, ...settings }) => {
     const workingDirectory = options?.workingDirectory ?? process.cwd();
     const customInstructions = options?.customInstructions;
     const todos = options?.todos ?? [];
@@ -79,8 +79,17 @@ export const deepAgent = new ToolLoopAgent({
     const todosContext = formatTodosForContext(todos);
     const scratchpadContext = formatScratchpadForContext(scratchpad);
 
+    const isAnthropicModel =
+      typeof model === "string"
+        ? model.includes("anthropic") || model.includes("claude")
+        : model.provider === "anthropic" ||
+          model.provider.includes("anthropic") ||
+          model.modelId.includes("anthropic") ||
+          model.modelId.includes("claude");
+
     return {
       ...settings,
+      model,
       instructions: {
         role: "system",
         content: buildSystemPrompt({
@@ -88,9 +97,11 @@ export const deepAgent = new ToolLoopAgent({
           todosContext,
           scratchpadContext,
         }),
-        providerOptions: {
-          anthropic: { cacheControl: { type: "ephemeral" } },
-        },
+        ...(isAnthropicModel && {
+          providerOptions: {
+            anthropic: { cacheControl: { type: "ephemeral" } },
+          },
+        }),
       },
       experimental_context: { workingDirectory },
     };

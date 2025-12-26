@@ -14,85 +14,73 @@ import {
 } from "./tools";
 import { buildSystemPrompt } from "./system-prompt";
 import {
-  createAgentState,
-  updateTodos,
   formatTodosForContext,
   formatScratchpadForContext,
 } from "./state";
-import type { AgentState, TodoItem } from "./types";
+import type { TodoItem, ScratchpadEntry } from "./types";
+import { todoItemSchema } from "./types";
 
-export interface DeepAgentOptions {
-  model?: string;
-  workingDirectory?: string;
-  customInstructions?: string;
-  maxSteps?: number;
-}
+const callOptionsSchema = z.object({
+  workingDirectory: z.string().optional(),
+  customInstructions: z.string().optional(),
+  todos: z.array(todoItemSchema).optional(),
+  scratchpad: z.map(z.string(), z.object({
+    path: z.string(),
+    content: z.string(),
+    createdAt: z.number(),
+    updatedAt: z.number(),
+    size: z.number(),
+  })).optional(),
+});
 
-export function createDeepAgent(options: DeepAgentOptions = {}) {
-  const {
-    model = "anthropic/claude-sonnet-4-20250514",
-    workingDirectory = process.cwd(),
-    customInstructions,
-    maxSteps = 50,
-  } = options;
+export type DeepAgentCallOptions = z.infer<typeof callOptionsSchema>;
 
-  let agentState: AgentState = createAgentState(workingDirectory);
+export const deepAgent = new ToolLoopAgent({
+  model: "anthropic/claude-sonnet-4-20250514",
+  instructions: buildSystemPrompt({}),
+  tools: {
+    todo_write: todoWriteTool,
+    read: readFileTool,
+    write: writeFileTool,
+    edit: editFileTool,
+    grep: grepTool,
+    glob: globTool,
+    bash: bashTool,
+    task: taskTool,
+    memory_save: memorySaveTool,
+    memory_recall: memoryRecallTool,
+  },
+  stopWhen: stepCountIs(50),
+  callOptionsSchema,
+  prepareCall: ({ options, ...settings }) => {
+    const workingDirectory = options?.workingDirectory ?? process.cwd();
+    const customInstructions = options?.customInstructions;
+    const todos = options?.todos ?? [];
+    const scratchpad = options?.scratchpad ?? new Map<string, ScratchpadEntry>();
 
-  const agent = new ToolLoopAgent({
-    model,
-    instructions: buildSystemPrompt({ customInstructions }),
-    tools: {
-      todo_write: todoWriteTool,
-      read: readFileTool,
-      write: writeFileTool,
-      edit: editFileTool,
-      grep: grepTool,
-      glob: globTool,
-      bash: bashTool,
-      task: taskTool,
-      memory_save: memorySaveTool,
-      memory_recall: memoryRecallTool,
-    },
-    stopWhen: stepCountIs(maxSteps),
-    experimental_context: { workingDirectory },
-    callOptionsSchema: z.object({
-      workingDirectory: z.string().optional(),
-    }),
-    prepareCall: ({ options: callOptions, ...settings }) => {
-      const cwd = callOptions?.workingDirectory ?? workingDirectory;
+    const todosContext = formatTodosForContext(todos);
+    const scratchpadContext = formatScratchpadForContext(scratchpad);
 
-      const todosContext = formatTodosForContext(agentState.todos);
-      const scratchpadContext = formatScratchpadForContext(agentState.scratchpad);
+    return {
+      ...settings,
+      instructions: buildSystemPrompt({
+        customInstructions,
+        todosContext,
+        scratchpadContext,
+      }),
+      experimental_context: { workingDirectory },
+    };
+  },
+});
 
-      return {
-        ...settings,
-        instructions: buildSystemPrompt({
-          customInstructions,
-          todosContext,
-          scratchpadContext,
-        }),
-        experimental_context: { workingDirectory: cwd },
-      };
-    },
-    onStepFinish: ({ toolResults }) => {
-      for (const result of toolResults) {
-        if (result.toolName === "todo_write" && "output" in result) {
-          const output = result.output as { todos?: TodoItem[] } | undefined;
-          if (output?.todos) {
-            agentState = updateTodos(agentState, output.todos);
-          }
-        }
+export function extractTodosFromStep(toolResults: Array<{ toolName: string; output?: unknown }>): TodoItem[] | null {
+  for (const result of toolResults) {
+    if (result.toolName === "todo_write" && result.output) {
+      const output = result.output as { todos?: TodoItem[] } | undefined;
+      if (output?.todos) {
+        return output.todos;
       }
-    },
-  });
-
-  return {
-    agent,
-    getState: () => agentState,
-    resetState: () => {
-      agentState = createAgentState(workingDirectory);
-    },
-  };
+    }
+  }
+  return null;
 }
-
-export type DeepAgent = ReturnType<typeof createDeepAgent>;

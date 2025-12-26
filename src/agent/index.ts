@@ -1,5 +1,5 @@
-export { createDeepAgent } from "./deep-agent";
-export type { DeepAgent, DeepAgentOptions } from "./deep-agent";
+export { deepAgent, extractTodosFromStep } from "./deep-agent";
+export type { DeepAgentCallOptions } from "./deep-agent";
 export type {
   TodoItem,
   TodoStatus,

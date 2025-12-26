@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { createDeepAgent } from "../agent";
+import { deepAgent } from "../agent";
+import type { TodoItem, ScratchpadEntry } from "../agent";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -32,17 +33,22 @@ async function main() {
   console.log(`Prompt: ${prompt}`);
   console.log("");
 
-  const { agent } = createDeepAgent({ workingDirectory });
+  let todos: TodoItem[] = [];
+  const scratchpad = new Map<string, ScratchpadEntry>();
 
   try {
     console.log("Running agent...\n");
 
-    const stream = await agent.stream({ prompt, options: {} });
+    const result = await deepAgent.generate({
+      prompt,
+      options: {
+        workingDirectory,
+        todos,
+        scratchpad,
+      },
+    });
 
-    for await (const chunk of stream.textStream) {
-      process.stdout.write(chunk);
-    }
-
+    console.log(result.text);
     console.log("\n\nDone.");
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);

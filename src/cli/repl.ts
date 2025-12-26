@@ -1,13 +1,17 @@
 import * as readline from "readline";
-import type { DeepAgent } from "../agent";
+import { deepAgent } from "../agent";
+import type { TodoItem, ScratchpadEntry } from "../agent";
 
 export interface ReplOptions {
-  agent: DeepAgent;
+  workingDirectory?: string;
   prompt?: string;
 }
 
-export async function startRepl(options: ReplOptions): Promise<void> {
-  const { agent, prompt: promptPrefix = ">" } = options;
+export async function startRepl(options: ReplOptions = {}): Promise<void> {
+  const { workingDirectory = process.cwd(), prompt: promptPrefix = ">" } = options;
+
+  let todos: TodoItem[] = [];
+  let scratchpad = new Map<string, ScratchpadEntry>();
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -34,29 +38,33 @@ export async function startRepl(options: ReplOptions): Promise<void> {
       }
 
       if (trimmed === "clear") {
-        agent.resetState();
+        todos = [];
+        scratchpad = new Map();
         console.log("State cleared.\n");
         askQuestion();
         return;
       }
 
       if (trimmed === "state") {
-        const state = agent.getState();
         console.log("\nCurrent State:");
-        console.log(`  Todos: ${state.todos.length}`);
-        console.log(`  Scratchpad entries: ${state.scratchpad.size}`);
+        console.log(`  Todos: ${todos.length}`);
+        console.log(`  Scratchpad entries: ${scratchpad.size}`);
         console.log("");
         askQuestion();
         return;
       }
 
       try {
-        const stream = await agent.agent.stream({ prompt: trimmed, options: {} });
+        const result = await deepAgent.generate({
+          prompt: trimmed,
+          options: {
+            workingDirectory,
+            todos,
+            scratchpad,
+          },
+        });
 
-        for await (const chunk of stream.textStream) {
-          process.stdout.write(chunk);
-        }
-
+        console.log(result.text);
         console.log("\n");
       } catch (error) {
         console.error(

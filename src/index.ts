@@ -1,12 +1,12 @@
 export {
-  createDeepAgent,
+  deepAgent,
+  extractTodosFromStep,
   DEEP_AGENT_SYSTEM_PROMPT,
   buildSystemPrompt,
 } from "./agent";
 
 export type {
-  DeepAgent,
-  DeepAgentOptions,
+  DeepAgentCallOptions,
   TodoItem,
   TodoStatus,
   ScratchpadEntry,

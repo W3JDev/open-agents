@@ -1,6 +1,6 @@
 import React, { useState, memo } from "react";
 import { Box, Text, useInput } from "ink";
-import TextInput from "ink-text-input";
+import { TextInput } from "./text-input.js";
 import type { AutoAcceptMode } from "../types.js";
 
 type InputBoxProps = {

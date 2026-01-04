@@ -10,20 +10,20 @@
 - [x] cancel requests with esc
 - [ ] pull in and cache context window size with models.dev
 - [ ] implement checkpointing for auto compaction (docs/auto-compaction-checkpoint-idea.md)
-- [ ] implement reasoning support (ui and provider options)
+- [x] implement reasoning support (ui and provider options)
 - [ ] add approved commands (auto approve for similar commands)
-- [ ] audit the input implementation (suggestions not working and missing chars)
-- [ ] support for pasting images
+- [x] audit the input implementation (suggestions not working and missing chars)
+- [x] support for pasting images
 - [ ] update system prompt to lean heavily on subagents
 - [ ] review (and probably remove) all old deep agent tools / instructions (scratchpad)
     - [ ] explore implementation that doesn't require sandbox? virtual fs
-- [ ] review todos/scratchpad in system prompt
+- [x] review todos/scratchpad in system prompt
     - if used, we should use prepareStep to build system prompt again (with this context)
-- [ ] add agents.md support
-- [ ] when pasting more than 3 lines in, we should collapse like other agents
-- [ ] when going through suggestions, you should be able to use ctrl+n to go through to hidden files
+- [x] add agents.md support
+- [x] when pasting more than 3 lines in, we should collapse like other agents
+- [x] when going through suggestions, you should be able to use ctrl+n to go through to hidden files
 - [ ] command+enter should only delete until the end of the line
-- [ ] sandbox adapter (sandbox.readFile) -> could be mapped to native fs or sandbox command (can live on the experimental_context too)
+- [x] sandbox adapter (sandbox.readFile) -> could be mapped to native fs or sandbox command (can live on the experimental_context too)
 
 ---
 

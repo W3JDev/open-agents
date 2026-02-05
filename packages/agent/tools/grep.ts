@@ -1,93 +1,18 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as path from "path";
-import type { Sandbox } from "@open-harness/sandbox";
 import {
   getSandbox,
   getApprovalContext,
   shouldAutoApprove,
   pathNeedsApproval,
+  shellEscape,
 } from "./utils";
 
 interface GrepMatch {
   file: string;
   line: number;
   content: string;
-}
-
-async function grepFile(
-  filePath: string,
-  pattern: RegExp,
-  maxMatchesPerFile: number,
-  sandbox: Sandbox,
-): Promise<GrepMatch[]> {
-  try {
-    const content = await sandbox.readFile(filePath, "utf-8");
-    const lines = content.split("\n");
-    const matches: GrepMatch[] = [];
-
-    for (
-      let i = 0;
-      i < lines.length && matches.length < maxMatchesPerFile;
-      i++
-    ) {
-      const line = lines[i];
-      if (line !== undefined && pattern.test(line)) {
-        matches.push({
-          file: filePath,
-          line: i + 1,
-          content: line.slice(0, 200),
-        });
-      }
-    }
-
-    return matches;
-  } catch {
-    return [];
-  }
-}
-
-async function walkDirectory(
-  dir: string,
-  glob: string | undefined,
-  sandbox: Sandbox,
-): Promise<string[]> {
-  const files: string[] = [];
-
-  async function walk(currentDir: string) {
-    try {
-      const entries = await sandbox.readdir(currentDir, {
-        withFileTypes: true,
-      });
-
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-
-        if (entry.name.startsWith(".") || entry.name === "node_modules") {
-          continue;
-        }
-
-        if (entry.isDirectory()) {
-          await walk(fullPath);
-        } else if (entry.isFile()) {
-          if (glob) {
-            const ext = path.extname(entry.name);
-            const globExt = glob.startsWith("*") ? glob.slice(1) : glob;
-            if (ext === globExt || entry.name.endsWith(globExt)) {
-              files.push(fullPath);
-            }
-          } else {
-            files.push(fullPath);
-          }
-        }
-      }
-    } catch {
-      // Skip directories we can't read
-    }
-  }
-
-  await walk(dir);
-  return files;
 }
 
 const grepInputSchema = z.object({
@@ -121,7 +46,7 @@ export const grepTool = () =>
         workingDirectory: ctx.workingDirectory,
       });
     },
-    description: `Search for patterns in files using JavaScript regular expressions.
+    description: `Search for patterns in files using POSIX Extended Regular Expressions (ERE).
 
 WHEN TO USE:
 - Finding where a function, variable, or string literal is used
@@ -134,7 +59,8 @@ WHEN NOT TO USE:
 - Directory listings, builds, or other shell tasks (use bashTool instead)
 
 USAGE:
-- Uses JavaScript RegExp syntax (e.g., "log.*Error", "function\\s+\\w+")
+- Uses POSIX ERE syntax (e.g., "log.*Error", "function[[:space:]]+[a-zA-Z_]+")
+- Perl-style shorthands like \\s, \\w, \\d are NOT supported; use POSIX classes instead: [[:space:]], [[:alnum:]_], [[:digit:]]
 - Search a specific file OR an entire directory via the path parameter
 - Optionally filter files with glob (e.g., "*.ts", "*.test.js")
 - Matches are SINGLE-LINE: patterns do not span across newline characters
@@ -158,42 +84,115 @@ EXAMPLES:
       const workingDirectory = sandbox.workingDirectory;
 
       try {
-        const flags = caseSensitive ? "g" : "gi";
-        const regex = new RegExp(pattern, flags);
-
         const absolutePath = path.isAbsolute(searchPath)
           ? searchPath
           : path.resolve(workingDirectory, searchPath);
 
-        const stats = await sandbox.stat(absolutePath);
-        let files: string[];
-
-        if (stats.isDirectory()) {
-          files = await walkDirectory(absolutePath, glob, sandbox);
-        } else {
-          files = [absolutePath];
-        }
-
-        const allMatches: GrepMatch[] = [];
         const maxTotal = 100;
         const maxPerFile = 10;
 
-        for (const file of files) {
-          if (allMatches.length >= maxTotal) break;
+        const args: string[] = ["grep", "-rn"];
+        if (!caseSensitive) args.push("-i");
 
-          const remaining = maxTotal - allMatches.length;
-          const limit = Math.min(maxPerFile, remaining);
-          const matches = await grepFile(file, regex, limit, sandbox);
-          allMatches.push(...matches);
+        args.push(
+          `--exclude-dir=${shellEscape(".*")}`,
+          `--exclude-dir=${shellEscape("node_modules")}`,
+        );
+
+        if (glob) {
+          args.push(`--include=${shellEscape(glob)}`);
         }
 
-        return {
+        args.push(
+          `-m`,
+          String(maxPerFile),
+          "-E",
+          shellEscape(pattern),
+          shellEscape(absolutePath),
+        );
+
+        const command = args.join(" ");
+
+        const result = await sandbox.exec(
+          command,
+          sandbox.workingDirectory,
+          30_000,
+        );
+
+        // grep exits with 1 when no matches found - that's not an error
+        if (!result.success && result.exitCode !== 1) {
+          const errorOutput = (result.stderr || result.stdout).slice(0, 500);
+          return {
+            success: false,
+            error: `Grep failed (exit ${result.exitCode}): ${errorOutput}`,
+          };
+        }
+
+        const matches: GrepMatch[] = [];
+        const filesSet = new Set<string>();
+        const fileMatchCounts = new Map<string, number>();
+
+        const lines = result.stdout.split("\n").filter(Boolean);
+        for (const line of lines) {
+          if (matches.length >= maxTotal) break;
+
+          // grep -rn output format: file:line:content
+          // Use last-known-good parsing: find first colon after the path
+          // For absolute paths like /vercel/sandbox/file.ts:10:content,
+          // we need to handle the colon after the path correctly
+          const nulIndex = line.indexOf("\0");
+          let file: string;
+          let rest: string;
+          if (nulIndex !== -1) {
+            // NUL-separated format (if --null was used)
+            file = line.slice(0, nulIndex);
+            rest = line.slice(nulIndex + 1);
+          } else {
+            // Colon-separated: find the line number portion (file:LINE_NUM:content)
+            // Match the pattern ":digits:" to separate file path from line number
+            const match = line.match(/:(\d+):/);
+            if (!match || match.index === undefined) continue;
+            file = line.slice(0, match.index);
+            rest = line.slice(match.index + 1);
+          }
+          const colonIndex = rest.indexOf(":");
+          if (colonIndex === -1) continue;
+
+          const lineNum = parseInt(rest.slice(0, colonIndex), 10);
+          const content = rest.slice(colonIndex + 1);
+
+          if (isNaN(lineNum)) continue;
+
+          filesSet.add(file);
+          const currentFileCount = fileMatchCounts.get(file) ?? 0;
+          if (currentFileCount >= maxPerFile) continue;
+
+          fileMatchCounts.set(file, currentFileCount + 1);
+          matches.push({
+            file,
+            line: lineNum,
+            content: content.slice(0, 200),
+          });
+        }
+
+        const response: Record<string, unknown> = {
           success: true,
           pattern,
-          matchCount: allMatches.length,
-          filesSearched: files.length,
-          matches: allMatches,
+          matchCount: matches.length,
+          filesWithMatches: filesSet.size,
+          matches,
         };
+
+        // Include debug info when no results found to aid diagnosis
+        if (matches.length === 0) {
+          response._debug = {
+            command,
+            exitCode: result.exitCode,
+            stdoutPreview: result.stdout.slice(0, 500),
+          };
+        }
+
+        return response;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return {

@@ -1,103 +1,18 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as path from "path";
-import type { Sandbox } from "@open-harness/sandbox";
 import {
   getSandbox,
   getApprovalContext,
   shouldAutoApprove,
   pathNeedsApproval,
+  shellEscape,
 } from "./utils";
 
 interface FileInfo {
   path: string;
-  isDirectory: boolean;
   size: number;
   modifiedAt: number;
-}
-
-async function findFiles(
-  baseDir: string,
-  pattern: string,
-  limit: number,
-  sandbox: Sandbox,
-): Promise<FileInfo[]> {
-  const results: FileInfo[] = [];
-
-  const patternParts = pattern.split("/").filter(Boolean);
-  const hasRecursive = pattern.includes("**");
-
-  async function matchesPattern(
-    filePath: string,
-    fileName: string,
-  ): Promise<boolean> {
-    const lastPart = patternParts[patternParts.length - 1] ?? "*";
-
-    if (lastPart === "*") return true;
-
-    if (lastPart.startsWith("*.")) {
-      const ext = lastPart.slice(1);
-      return fileName.endsWith(ext);
-    }
-
-    if (lastPart.includes("*")) {
-      const regex = new RegExp(
-        "^" + lastPart.replace(/\*/g, ".*").replace(/\?/g, ".") + "$",
-      );
-      return regex.test(fileName);
-    }
-
-    return fileName === lastPart;
-  }
-
-  async function walk(currentDir: string, depth: number = 0) {
-    if (results.length >= limit) return;
-
-    try {
-      const entries = await sandbox.readdir(currentDir, {
-        withFileTypes: true,
-      });
-
-      for (const entry of entries) {
-        if (results.length >= limit) break;
-
-        if (entry.name.startsWith(".") || entry.name === "node_modules") {
-          continue;
-        }
-
-        const fullPath = path.join(currentDir, entry.name);
-
-        if (entry.isDirectory()) {
-          if (hasRecursive || depth < patternParts.length - 1) {
-            await walk(fullPath, depth + 1);
-          }
-        } else {
-          const matches = await matchesPattern(fullPath, entry.name);
-          if (matches) {
-            try {
-              const stats = await sandbox.stat(fullPath);
-              results.push({
-                path: fullPath,
-                isDirectory: false,
-                size: stats.size,
-                modifiedAt: stats.mtimeMs,
-              });
-            } catch {
-              // Skip files we can't stat
-            }
-          }
-        }
-      }
-    } catch {
-      // Skip directories we can't read
-    }
-  }
-
-  await walk(baseDir);
-
-  results.sort((a, b) => b.modifiedAt - a.modifiedAt);
-
-  return results;
 }
 
 const globInputSchema = z.object({
@@ -172,7 +87,6 @@ EXAMPLES:
       const workingDirectory = sandbox.workingDirectory;
 
       try {
-        // Resolve search directory relative to working directory
         let searchDir: string;
         if (basePath) {
           searchDir = path.isAbsolute(basePath)
@@ -182,9 +96,108 @@ EXAMPLES:
           searchDir = workingDirectory;
         }
 
-        const files = await findFiles(searchDir, pattern, limit, sandbox);
+        // Extract file name pattern from glob (last segment)
+        const patternParts = pattern.split("/").filter(Boolean);
+        const namePattern = patternParts[patternParts.length - 1] ?? "*";
 
-        return {
+        // Extract literal directory prefix (segments before any wildcards)
+        // e.g., "src/components/**/*.tsx" → prefix "src/components", name "*.tsx"
+        const literalPrefix: string[] = [];
+        for (let i = 0; i < patternParts.length - 1; i++) {
+          const part = patternParts[i]!;
+          if (part.includes("*") || part.includes("?") || part.includes("[")) {
+            break;
+          }
+          literalPrefix.push(part);
+        }
+        if (literalPrefix.length > 0) {
+          searchDir = path.join(searchDir, ...literalPrefix);
+        }
+
+        // Determine maxdepth from remaining wildcard directory segments.
+        // e.g., "src/*/utils.ts" → literalPrefix ["src"], remaining dir ["*"], name "utils.ts"
+        //   → maxdepth 2 (one dir level + the file)
+        // e.g., "src/**/*.tsx" → remaining dir ["**"] → no maxdepth (recursive)
+        // e.g., "*.json" → no remaining dir segments → maxdepth 1 (current dir only)
+        const remainingDirSegments = patternParts.slice(
+          literalPrefix.length,
+          patternParts.length - 1,
+        );
+        // A trailing "**" segment (e.g. "**", "src/**") should also remain recursive.
+        const hasRecursiveWildcard =
+          remainingDirSegments.some((s) => s === "**") || namePattern === "**";
+
+        let maxDepth: number | undefined;
+        if (!hasRecursiveWildcard) {
+          // Each * segment = one directory level, +1 for the file itself
+          maxDepth = remainingDirSegments.length + 1;
+        }
+
+        const findArgs: string[] = ["find", shellEscape(searchDir)];
+        if (maxDepth !== undefined) {
+          findArgs.push("-maxdepth", String(maxDepth));
+        }
+        findArgs.push(
+          "-not",
+          "-path",
+          "'*/.*'",
+          "-not",
+          "-path",
+          "'*/node_modules/*'",
+          "-type",
+          "f",
+          "-name",
+          shellEscape(namePattern),
+        );
+
+        // Get file metadata (mtime, size) along with paths.
+        // GNU find -printf (Linux): outputs mtime/size/path directly.
+        // BSD find (macOS): pipe to xargs stat to avoid running find twice.
+        const findBase = findArgs.join(" ");
+        const command = [
+          `{ ${findBase} -printf '%T@\\t%s\\t%p\\n' 2>/dev/null`,
+          `|| ${findBase} -print0 | xargs -0 stat -f '%m%t%z%t%N' ; }`,
+          `| sort -t$'\\t' -k1 -rn | head -n ${limit}`,
+        ].join(" ");
+
+        const result = await sandbox.exec(
+          command,
+          sandbox.workingDirectory,
+          30_000,
+        );
+
+        // find returns exit code 1 on permission errors but may still produce valid results
+        if (!result.success && result.exitCode !== 1) {
+          return {
+            success: false,
+            error: `Glob failed (exit ${result.exitCode}): ${result.stdout.slice(0, 500)}`,
+          };
+        }
+
+        const files: FileInfo[] = [];
+        const lines = result.stdout.split("\n").filter(Boolean);
+
+        for (const line of lines) {
+          // Format: mtime_epoch\tsize\tpath
+          const firstTab = line.indexOf("\t");
+          if (firstTab === -1) continue;
+          const secondTab = line.indexOf("\t", firstTab + 1);
+          if (secondTab === -1) continue;
+
+          const mtimeSeconds = parseFloat(line.slice(0, firstTab));
+          const size = parseInt(line.slice(firstTab + 1, secondTab), 10);
+          const filePath = line.slice(secondTab + 1);
+
+          if (isNaN(mtimeSeconds) || isNaN(size) || !filePath) continue;
+
+          files.push({
+            path: filePath,
+            size,
+            modifiedAt: mtimeSeconds * 1000,
+          });
+        }
+
+        const response: Record<string, unknown> = {
           success: true,
           pattern,
           baseDir: searchDir,
@@ -195,6 +208,17 @@ EXAMPLES:
             modifiedAt: new Date(f.modifiedAt).toISOString(),
           })),
         };
+
+        // Include debug info when no results found to aid diagnosis
+        if (files.length === 0) {
+          response._debug = {
+            command,
+            exitCode: result.exitCode,
+            stdoutPreview: result.stdout.slice(0, 500),
+          };
+        }
+
+        return response;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return {

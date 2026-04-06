@@ -210,7 +210,7 @@ function SessionPopoverContent({ session }: { session: SessionWithUnread }) {
         {session.title}
       </p>
 
-      {/* Status · branch · time — all inline, never wraps */}
+      {/* Status + branch */}
       <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs text-muted-foreground">
         <span className="shrink-0">{getSessionStatusIcon(session)}</span>
         {prUrl && statusLabel.prNumber ? (
@@ -226,8 +226,8 @@ function SessionPopoverContent({ session }: { session: SessionWithUnread }) {
           <span className="shrink-0">{statusLabel.text}</span>
         )}
         {session.branch ? (
-          <>
-            <span className="shrink-0 text-muted-foreground/40">·</span>
+          <span className="flex min-w-0 items-center gap-1 ml-1">
+            <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground/40" />
             {branchUrl ? (
               <a
                 href={branchUrl}
@@ -242,21 +242,22 @@ function SessionPopoverContent({ session }: { session: SessionWithUnread }) {
                 {session.branch}
               </span>
             )}
-          </>
+          </span>
         ) : null}
-        <span className="shrink-0 text-muted-foreground/40">·</span>
-        <span className="shrink-0">{lastActivityLabel}</span>
       </div>
 
-      {/* Diff stats */}
-      {hasDiff ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      {/* Diff stats + time ago */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        {hasDiff ? (
           <DiffStats
             added={session.linesAdded}
             removed={session.linesRemoved}
           />
-        </div>
-      ) : null}
+        ) : (
+          <span />
+        )}
+        <span className="shrink-0">{lastActivityLabel}</span>
+      </div>
     </div>
   );
 }

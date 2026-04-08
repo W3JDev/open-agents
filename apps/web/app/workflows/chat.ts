@@ -66,11 +66,23 @@ const convertMessages = async (
   "use step";
   const { webAgent } = await import("@/app/config");
   const dedupedMessages = messages.map(dedupeMessageReasoning);
-  const modelMessages = await convertToModelMessages(dedupedMessages, {
-    ignoreIncompleteToolCalls: true,
-    tools: webAgent.tools,
-    convertDataPart: () => undefined,
-  });
+  const modelMessages = await convertToModelMessages<WebAgentUIMessage>(
+    dedupedMessages,
+    {
+      ignoreIncompleteToolCalls: true,
+      tools: webAgent.tools,
+      convertDataPart: (part) => {
+        if (part.type === "data-snippet") {
+          const { filename, content } = part.data;
+          return {
+            type: "text",
+            text: `<snippet filename="${filename}">\n${content}\n</snippet>`,
+          };
+        }
+        return undefined;
+      },
+    },
+  );
 
   return pruneMessages({
     messages: modelMessages,

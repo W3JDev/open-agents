@@ -13,7 +13,7 @@ import {
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Streamdown } from "streamdown";
 import type {
   WebAgentUIMessage,
@@ -24,6 +24,7 @@ import {
   AssistantFileLink,
   type AssistantFileLinkProps,
 } from "@/components/assistant-file-link";
+import { SnippetChip } from "@/components/snippet-chip";
 import { TaskGroupView } from "@/components/task-group-view";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { ToolCall } from "@/components/tool-call";
@@ -466,8 +467,12 @@ function SharedMessage({
     [],
   );
 
+  const isUser = m.role === "user";
+  const Wrapper = isUser ? "div" : Fragment;
+  const wrapperProps = isUser ? { className: "space-y-1" } : {};
+
   return (
-    <>
+    <Wrapper {...wrapperProps}>
       {showSummary && (
         <ToolCallSummary
           toolCallCount={toolCallCount}
@@ -572,8 +577,21 @@ function SharedMessage({
           );
         }
 
+        if (p.type === "data-snippet") {
+          return (
+            <div key={`${m.id}-${i}`} className="flex justify-end">
+              <div className="max-w-[80%]">
+                <SnippetChip
+                  filename={p.data.filename}
+                  content={p.data.content}
+                />
+              </div>
+            </div>
+          );
+        }
+
         return null;
       })}
-    </>
+    </Wrapper>
   );
 }

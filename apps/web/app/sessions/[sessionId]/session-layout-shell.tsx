@@ -32,6 +32,8 @@ export function SessionLayoutShell({
     chats,
     loading: chatsLoading,
     createChat,
+    deleteChat,
+    renameChat,
   } = useSessionChats(sessionId, { initialData: initialChatsData });
 
   const switchChat = useCallback(
@@ -58,8 +60,10 @@ export function SessionLayoutShell({
       chatsLoading,
       createChat,
       switchChat,
+      deleteChat,
+      renameChat,
     }),
-    [initialSession, chats, chatsLoading, createChat, switchChat],
+    [initialSession, chats, chatsLoading, createChat, switchChat, deleteChat, renameChat],
   );
 
   return (

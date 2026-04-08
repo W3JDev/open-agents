@@ -5,12 +5,14 @@ import {
   Check,
   ChevronDown,
   ExternalLink,
-  FileText,
   FolderGit2,
   GitCommit,
   GitPullRequest,
   Loader2,
   Square,
+  SquareDot,
+  SquareMinus,
+  SquarePlus,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiffFile } from "@/app/api/sessions/[sessionId]/diff/route";
@@ -157,15 +159,15 @@ function PanelActionRow({
 /* Diff file list for the panel's Diff tab                             */
 /* ------------------------------------------------------------------ */
 
-function DiffFileStatusDot({ status }: { status: DiffFile["status"] }) {
-  const colors = {
-    added: "bg-green-500",
-    modified: "bg-blue-500",
-    deleted: "bg-red-500",
-    renamed: "bg-yellow-500",
-  };
-
-  return <span className={cn("h-2 w-2 shrink-0 rounded-full", colors[status])} />;
+function DiffFileStatusIcon({ status }: { status: DiffFile["status"] }) {
+  if (status === "added") {
+    return <SquarePlus className="h-4 w-4 shrink-0 text-green-500" />;
+  }
+  if (status === "deleted") {
+    return <SquareMinus className="h-4 w-4 shrink-0 text-red-500" />;
+  }
+  // modified, renamed
+  return <SquareDot className={cn("h-4 w-4 shrink-0", status === "renamed" ? "text-yellow-500" : "text-blue-500")} />;
 }
 
 type DiffScope = "all" | "uncommitted";
@@ -233,15 +235,16 @@ function DiffFileList({ files }: { files: DiffFile[] }) {
             onClick={() => openDiffToFile(file.path)}
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
           >
-            <DiffFileStatusDot status={file.status} />
-            <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
-              <span className="min-w-0 truncate text-xs">
-                {dirPath && (
-                  <span className="text-muted-foreground">{dirPath}</span>
-                )}
-                <span className="font-medium text-foreground">{fileName}</span>
+            <DiffFileStatusIcon status={file.status} />
+            <div className="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden">
+              <span className="shrink-0 text-xs font-medium text-foreground">
+                {fileName}
               </span>
+              {dirPath && (
+                <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+                  {dirPath.replace(/\/$/, "")}
+                </span>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1.5 text-[10px]">
               {file.additions > 0 && (
@@ -475,20 +478,6 @@ function InlineMergePanel({
         isLoading={isLoadingReadiness && !readiness}
         onFixChecks={onFixChecks}
       />
-
-      {/* PR link */}
-      {pullRequestUrl && (
-        <button
-          type="button"
-          onClick={() =>
-            window.open(pullRequestUrl, "_blank", "noopener,noreferrer")
-          }
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-          <span>View PR #{session.prNumber}</span>
-        </button>
-      )}
 
       {/* Delete branch toggle */}
       <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 p-2.5">
@@ -747,7 +736,7 @@ export function GitPanel(props: GitPanelProps) {
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            {tab === "code" ? "Code" : tab === "diff" ? "Diff" : "Checks"}
+            {tab === "code" ? "Code" : tab === "diff" ? "Changes" : "Checks"}
             {tab === "diff" && hasDiffChanges && (
               <span className="ml-1 text-[10px] text-muted-foreground">
                 {diffFiles?.length ?? 0}

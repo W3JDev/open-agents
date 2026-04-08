@@ -26,6 +26,10 @@ type GitPanelContextValue = {
   activeView: ActiveView;
   setActiveView: (view: ActiveView) => void;
 
+  /** Whether the user has explicitly closed the Changes tab */
+  changesTabDismissed: boolean;
+  setChangesTabDismissed: (dismissed: boolean) => void;
+
   /** File path to scroll to in the diff tab view */
   focusedDiffFile: string | null;
   setFocusedDiffFile: (file: string | null) => void;
@@ -43,6 +47,7 @@ export function GitPanelProvider({ children }: { children: ReactNode }) {
   const [gitPanelTab, setGitPanelTab] = useState<GitPanelTab>("code");
   const [activeView, setActiveView] = useState<ActiveView>("chat");
   const [focusedDiffFile, setFocusedDiffFile] = useState<string | null>(null);
+  const [changesTabDismissed, setChangesTabDismissed] = useState(false);
 
   const toggleGitPanel = useCallback(() => {
     setGitPanelOpen((prev) => !prev);
@@ -51,6 +56,7 @@ export function GitPanelProvider({ children }: { children: ReactNode }) {
   const openDiffToFile = useCallback((filePath: string) => {
     setFocusedDiffFile(filePath);
     setActiveView("diff");
+    setChangesTabDismissed(false); // Re-show the tab when opening a file
   }, []);
 
   const value = useMemo(
@@ -62,11 +68,13 @@ export function GitPanelProvider({ children }: { children: ReactNode }) {
       setGitPanelTab,
       activeView,
       setActiveView,
+      changesTabDismissed,
+      setChangesTabDismissed,
       focusedDiffFile,
       setFocusedDiffFile,
       openDiffToFile,
     }),
-    [gitPanelOpen, toggleGitPanel, gitPanelTab, activeView, focusedDiffFile, openDiffToFile],
+    [gitPanelOpen, toggleGitPanel, gitPanelTab, activeView, changesTabDismissed, focusedDiffFile, openDiffToFile],
   );
 
   return (

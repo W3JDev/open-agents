@@ -878,7 +878,7 @@ export function SessionChatContent({
   const [branchPreviewUrlChangeBaseline, setBranchPreviewUrlChangeBaseline] =
     useState<string | null | undefined>(undefined);
   const hasMounted = useHasMounted();
-  const { activeView, shareRequested, setShareRequested } = useGitPanel();
+  const { activeView, shareRequested, setShareRequested, setPanelContent } = useGitPanel();
   const { preferences } = useUserPreferences();
   const isIosDevice = useMemo(() => {
     if (typeof navigator === "undefined") {
@@ -2687,11 +2687,79 @@ export function SessionChatContent({
     [archiveSession, router, updateSessionPullRequest],
   );
 
+  // Register the git panel content into the layout-level slot so it renders
+  // as a full-height sibling of the header/tabs/content column.
+  useEffect(() => {
+    setPanelContent(
+      <GitPanel
+        session={session}
+        hasRepo={hasRepo}
+        hasExistingPr={hasExistingPr}
+        existingPrUrl={existingPrUrl}
+        canCreatePr={canCreatePr}
+        isCreatePrBranchReady={isCreatePrBranchReady}
+        showCommitAction={showCommitAction}
+        commitActionLabel={commitActionLabel}
+        hasUncommittedGitChanges={hasUncommittedGitChanges}
+        canMergeAndArchive={canMergeAndArchive}
+        supportsRepoCreation={supportsRepoCreation}
+        supportsDiff={supportsDiff}
+        hasDiff={Boolean(diff || session.cachedDiff)}
+        isAutoCommitting={isAutoCommitting}
+        isChatReady={isChatReady}
+        prDeploymentUrl={prDeploymentUrl}
+        isDeploymentStale={isDeploymentStale}
+        buildingDeploymentUrl={buildingDeploymentUrl}
+        canRunDevServer={canRunDevServer}
+        devServer={devServer}
+        codeEditor={codeEditor}
+        diffFiles={diff?.files ?? null}
+        diffSummary={diff?.summary ?? null}
+        onCommitClick={() => setCommitDialogOpen(true)}
+        onCreatePrClick={() => setPrDialogOpen(true)}
+        onCreateRepoClick={() => setRepoDialogOpen(true)}
+        onOpenPreview={
+          isDeploymentStale && buildingDeploymentUrl
+            ? openBuildingDeployment
+            : openPreviewOrPr
+        }
+        onOpenPr={openExistingPr}
+        onOpenBuildingDeployment={openBuildingDeployment}
+        onMerged={handleMerged}
+        onFixChecks={async (failedRuns) => {
+          let text = "";
+          try {
+            const res = await fetch(
+              `/api/sessions/${session.id}/checks/fix`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ checkRuns: failedRuns }),
+              },
+            );
+            if (res.ok) {
+              const data = (await res.json()) as { message: string };
+              text = data.message;
+            }
+          } catch {
+            // Fall through to fallback
+          }
+
+          if (!text) {
+            const names = failedRuns.map((r) => r.name).join(", ");
+            text = `# Fix Failing Checks\n\nThe following checks are failing: ${names}. Please investigate and push a fix.`;
+          }
+
+          void sendMessageWithPendingState({ text });
+        }}
+      />,
+    );
+    return () => setPanelContent(null);
+  });
+
   return (
     <>
-    <div className="flex h-full overflow-hidden">
-      {/* Left column: content */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
 
       {/* Share dialog (triggered from header) */}
       <ShareDialog
@@ -3608,71 +3676,6 @@ export function SessionChatContent({
             </>
           )}
         </div>
-      </div>
-
-      {/* Git panel — full height right column */}
-      <GitPanel
-          session={session}
-          hasRepo={hasRepo}
-          hasExistingPr={hasExistingPr}
-          existingPrUrl={existingPrUrl}
-          canCreatePr={canCreatePr}
-          isCreatePrBranchReady={isCreatePrBranchReady}
-          showCommitAction={showCommitAction}
-          commitActionLabel={commitActionLabel}
-          hasUncommittedGitChanges={hasUncommittedGitChanges}
-          canMergeAndArchive={canMergeAndArchive}
-          supportsRepoCreation={supportsRepoCreation}
-          supportsDiff={supportsDiff}
-          hasDiff={Boolean(diff || session.cachedDiff)}
-          isAutoCommitting={isAutoCommitting}
-          isChatReady={isChatReady}
-          prDeploymentUrl={prDeploymentUrl}
-          isDeploymentStale={isDeploymentStale}
-          buildingDeploymentUrl={buildingDeploymentUrl}
-          canRunDevServer={canRunDevServer}
-          devServer={devServer}
-          codeEditor={codeEditor}
-          diffFiles={diff?.files ?? null}
-          diffSummary={diff?.summary ?? null}
-          onCommitClick={() => setCommitDialogOpen(true)}
-          onCreatePrClick={() => setPrDialogOpen(true)}
-          onCreateRepoClick={() => setRepoDialogOpen(true)}
-          onOpenPreview={
-            isDeploymentStale && buildingDeploymentUrl
-              ? openBuildingDeployment
-              : openPreviewOrPr
-          }
-          onOpenPr={openExistingPr}
-          onOpenBuildingDeployment={openBuildingDeployment}
-          onMerged={handleMerged}
-          onFixChecks={async (failedRuns) => {
-            let text = "";
-            try {
-              const res = await fetch(
-                `/api/sessions/${session.id}/checks/fix`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ checkRuns: failedRuns }),
-                },
-              );
-              if (res.ok) {
-                const data = (await res.json()) as { message: string };
-                text = data.message;
-              }
-            } catch {
-              // Fall through to fallback
-            }
-
-            if (!text) {
-              const names = failedRuns.map((r) => r.name).join(", ");
-              text = `# Fix Failing Checks\n\nThe following checks are failing: ${names}. Please investigate and push a fix.`;
-            }
-
-            void sendMessageWithPendingState({ text });
-          }}
-        />
     </div>
 
       {/* Create PR Dialog */}

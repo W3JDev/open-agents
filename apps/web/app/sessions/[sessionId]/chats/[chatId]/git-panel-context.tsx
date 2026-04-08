@@ -40,6 +40,10 @@ type GitPanelContextValue = {
   /** Share dialog trigger (set by per-chat page, called by header) */
   shareRequested: boolean;
   setShareRequested: (requested: boolean) => void;
+
+  /** Panel content slot — page renders GitPanel here, layout shell displays it */
+  panelContent: ReactNode;
+  setPanelContent: (content: ReactNode) => void;
 };
 
 const GitPanelContext = createContext<GitPanelContextValue | undefined>(
@@ -53,6 +57,7 @@ export function GitPanelProvider({ children }: { children: ReactNode }) {
   const [focusedDiffFile, setFocusedDiffFile] = useState<string | null>(null);
   const [changesTabDismissed, setChangesTabDismissed] = useState(false);
   const [shareRequested, setShareRequested] = useState(false);
+  const [panelContent, setPanelContent] = useState<ReactNode>(null);
 
   const toggleGitPanel = useCallback(() => {
     setGitPanelOpen((prev) => !prev);
@@ -61,7 +66,7 @@ export function GitPanelProvider({ children }: { children: ReactNode }) {
   const openDiffToFile = useCallback((filePath: string) => {
     setFocusedDiffFile(filePath);
     setActiveView("diff");
-    setChangesTabDismissed(false); // Re-show the tab when opening a file
+    setChangesTabDismissed(false);
   }, []);
 
   const value = useMemo(
@@ -80,8 +85,10 @@ export function GitPanelProvider({ children }: { children: ReactNode }) {
       openDiffToFile,
       shareRequested,
       setShareRequested,
+      panelContent,
+      setPanelContent,
     }),
-    [gitPanelOpen, toggleGitPanel, gitPanelTab, activeView, changesTabDismissed, focusedDiffFile, openDiffToFile, shareRequested],
+    [gitPanelOpen, toggleGitPanel, gitPanelTab, activeView, changesTabDismissed, focusedDiffFile, openDiffToFile, shareRequested, panelContent],
   );
 
   return (

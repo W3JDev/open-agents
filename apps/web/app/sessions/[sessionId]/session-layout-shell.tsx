@@ -8,7 +8,7 @@ import {
   useSessionChats,
 } from "@/hooks/use-session-chats";
 import type { Session } from "@/lib/db/schema";
-import { GitPanelProvider } from "./chats/[chatId]/git-panel-context";
+import { GitPanelProvider, useGitPanel } from "./chats/[chatId]/git-panel-context";
 import { SessionHeader } from "./chats/[chatId]/session-header";
 import { ChatTabs } from "./chats/[chatId]/chat-tabs";
 import { SessionLayoutContext } from "./session-layout-context";
@@ -21,6 +21,38 @@ type SessionLayoutShellProps = {
   };
   children: ReactNode;
 };
+
+/**
+ * Inner component that reads panelContent from context and renders
+ * the horizontal split: left column (header + tabs + page) | right panel.
+ */
+function SessionLayoutInner({
+  activeChatId,
+  children,
+}: {
+  activeChatId: string;
+  children: ReactNode;
+}) {
+  const { panelContent } = useGitPanel();
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {/* Left column: header + tabs + page content */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <SessionHeader />
+        {activeChatId && (
+          <ChatTabs activeChatId={activeChatId} />
+        )}
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {children}
+        </div>
+      </div>
+
+      {/* Right panel — full page height, rendered from per-chat page via context slot */}
+      {panelContent}
+    </div>
+  );
+}
 
 export function SessionLayoutShell({
   session: initialSession,
@@ -74,23 +106,9 @@ export function SessionLayoutShell({
   return (
     <SessionLayoutContext.Provider value={layoutContext}>
       <GitPanelProvider>
-        {/*
-          The children (SessionChatContent) renders a flex row with:
-            - left column (chat/diff content)
-            - right column (GitPanel, when open)
-          Both header and tabs persist here at layout level.
-          The children div uses flex-1 to fill remaining vertical space,
-          and the page content inside creates the horizontal split with the panel.
-        */}
-        <SessionHeader />
-        {activeChatId && (
-          <ChatTabs activeChatId={activeChatId} />
-        )}
-        {/* flex-1 + min-h-0 lets the page content (which is a flex row with
-            chat + panel) fill the remaining height correctly */}
-        <div className="min-h-0 flex-1">
+        <SessionLayoutInner activeChatId={activeChatId}>
           {children}
-        </div>
+        </SessionLayoutInner>
       </GitPanelProvider>
     </SessionLayoutContext.Provider>
   );

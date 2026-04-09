@@ -1404,7 +1404,7 @@ export function GitPanel(props: GitPanelProps) {
                   <p className="text-xs text-muted-foreground">
                     {!hasSandbox
                       ? "Waiting for sandbox..."
-                      : hasDiff
+                      : diffFiles === null
                         ? "Loading..."
                         : "No file changes yet"}
                   </p>

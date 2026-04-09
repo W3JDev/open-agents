@@ -2621,8 +2621,7 @@ export function SessionChatContent({
     setChangesCount(totalChangesCount);
   }, [totalChangesCount, setChangesCount]);
   const hasOpenPr = hasExistingPr && session.prStatus === "open";
-  const _canMergeAndArchive = hasOpenPr && !showCommitAction && !isArchived;
-  const _canCloseAndArchive = hasOpenPr && !isArchived;
+  const canCloseAndArchive = hasOpenPr && !isArchived;
   const handleCommitted = useCallback(async () => {
     if (hasExistingPr || hasBranchPreviewLookup) {
       setBranchPreviewUrlChangeBaseline(prDeploymentUrl);
@@ -2720,10 +2719,12 @@ export function SessionChatContent({
       hasUncommittedGitChanges={hasUncommittedGitChanges}
       supportsRepoCreation={supportsRepoCreation}
       hasDiff={Boolean(diff || session.cachedDiff)}
+      canCloseAndArchive={canCloseAndArchive}
       diffFiles={diff?.files ?? null}
       diffSummary={diff?.summary ?? null}
       onCreateRepoClick={() => setRepoDialogOpen(true)}
       onMerged={handleMerged}
+      onCloseAndArchiveClick={() => setCloseDialogOpen(true)}
       onFixChecks={async (failedRuns) => {
         let text = "";
         try {

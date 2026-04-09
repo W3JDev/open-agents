@@ -9,9 +9,8 @@ import { exchangeVercelCode, getVercelUserInfo } from "@/lib/vercel/oauth";
 const ALLOWED_VERCEL_EMAIL_DOMAIN = "vercel.com";
 const DEPLOY_YOUR_OWN_PATH = "/deploy-your-own";
 const MANAGED_TEMPLATE_HOSTS = new Set([
-  "openharness.dev",
-  "www.openharness.dev",
-  "preview-openharness.vercel.app",
+  "open-agents.dev",
+  "www.open-agents.dev",
 ]);
 
 function clearVercelOauthCookies(store: Awaited<ReturnType<typeof cookies>>) {

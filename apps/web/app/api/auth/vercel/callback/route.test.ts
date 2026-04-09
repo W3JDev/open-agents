@@ -125,11 +125,11 @@ describe("GET /api/auth/vercel/callback", () => {
     });
 
     const { GET } = await routeModulePromise;
-    const response = await GET(createRequest("https://openharness.dev"));
+    const response = await GET(createRequest("https://open-agents.dev"));
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(
-      "https://openharness.dev/deploy-your-own",
+      "https://open-agents.dev/deploy-your-own",
     );
     expect(upsertUserMock).not.toHaveBeenCalled();
     expect(deletedCookies).toEqual([
@@ -140,7 +140,7 @@ describe("GET /api/auth/vercel/callback", () => {
   });
 
   test("redirects non-Vercel emails on preview hosts for the managed deployment", async () => {
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL = "openharness.dev";
+    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL = "open-agents.dev";
 
     const { GET } = await routeModulePromise;
     const response = await GET(

@@ -1,7 +1,12 @@
 "use client";
 
 import type { AskUserQuestionInput } from "@open-harness/agent";
-import { isReasoningUIPart, isToolUIPart, type FileUIPart } from "ai";
+import {
+  isReasoningUIPart,
+  isToolUIPart,
+  type FileUIPart,
+  type LanguageModelUsage,
+} from "ai";
 import {
   Archive,
   ArrowDown,
@@ -427,6 +432,98 @@ function formatUsd(amount: number): string {
   );
 }
 
+type MessageUsageTotals = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+};
+
+function getCachedInputTokens(usage: LanguageModelUsage | undefined): number {
+  return (
+    usage?.inputTokenDetails?.cacheReadTokens ?? usage?.cachedInputTokens ?? 0
+  );
+}
+
+function getUsageTotals(
+  usage: LanguageModelUsage | undefined,
+): MessageUsageTotals {
+  return {
+    inputTokens: usage?.inputTokens ?? 0,
+    cachedInputTokens: getCachedInputTokens(usage),
+    outputTokens: usage?.outputTokens ?? 0,
+  };
+}
+
+function getLatestContextUsage(
+  messages: WebAgentUIMessage[],
+): MessageUsageTotals {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message?.role === "assistant" && message.metadata?.lastStepUsage) {
+      return getUsageTotals(message.metadata.lastStepUsage);
+    }
+  }
+
+  return getUsageTotals(undefined);
+}
+
+function getConversationUsage(
+  messages: WebAgentUIMessage[],
+): MessageUsageTotals {
+  return messages.reduce<MessageUsageTotals>((total, message) => {
+    if (message.role !== "assistant") {
+      return total;
+    }
+
+    const usage =
+      message.metadata?.totalMessageUsage ?? message.metadata?.lastStepUsage;
+    if (!usage) {
+      return total;
+    }
+
+    const usageTotals = getUsageTotals(usage);
+    return {
+      inputTokens: total.inputTokens + usageTotals.inputTokens,
+      cachedInputTokens:
+        total.cachedInputTokens + usageTotals.cachedInputTokens,
+      outputTokens: total.outputTokens + usageTotals.outputTokens,
+    };
+  }, getUsageTotals(undefined));
+}
+
+function getConversationEstimatedCost(
+  messages: WebAgentUIMessage[],
+  modelCost: AvailableModelCost | undefined,
+): number | undefined {
+  let totalCost = 0;
+  let hasUsage = false;
+
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    const usage =
+      message.metadata?.totalMessageUsage ?? message.metadata?.lastStepUsage;
+    if (!usage) {
+      continue;
+    }
+
+    const estimatedCost = estimateModelUsageCost(
+      getUsageTotals(usage),
+      modelCost,
+    );
+    if (estimatedCost === undefined) {
+      return undefined;
+    }
+
+    totalCost += estimatedCost;
+    hasUsage = true;
+  }
+
+  return hasUsage ? totalCost : undefined;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -475,16 +572,18 @@ function CircularProgress({
 
 function ContextUsageIndicator({
   inputTokens,
-  cachedInputTokens,
-  outputTokens,
+  conversationInputTokens,
+  conversationCachedInputTokens,
+  conversationOutputTokens,
+  estimatedConversationCost,
   contextLimit,
-  modelCost,
 }: {
   inputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
+  conversationInputTokens: number;
+  conversationCachedInputTokens: number;
+  conversationOutputTokens: number;
+  estimatedConversationCost?: number;
   contextLimit: number;
-  modelCost?: AvailableModelCost;
 }) {
   if (inputTokens === 0) {
     return null;
@@ -492,13 +591,9 @@ function ContextUsageIndicator({
 
   const percentage =
     contextLimit > 0 ? Math.round((inputTokens / contextLimit) * 100) : 0;
-  const estimatedCost = estimateModelUsageCost(
-    {
-      inputTokens,
-      cachedInputTokens,
-      outputTokens,
-    },
-    modelCost,
+  const uncachedConversationInputTokens = Math.max(
+    0,
+    conversationInputTokens - conversationCachedInputTokens,
   );
 
   return (
@@ -526,17 +621,25 @@ function ContextUsageIndicator({
         {/* Breakdown */}
         <div className="space-y-1 p-3 text-xs">
           <div className="flex justify-between gap-6">
-            <span className="opacity-60">Input</span>
-            <span>{formatTokens(inputTokens)}</span>
+            <span className="opacity-60">Conversation input</span>
+            <span>{formatTokens(conversationInputTokens)}</span>
           </div>
           <div className="flex justify-between gap-6">
-            <span className="opacity-60">Output</span>
-            <span>{formatTokens(outputTokens)}</span>
+            <span className="opacity-60">Cached input</span>
+            <span>{formatTokens(conversationCachedInputTokens)}</span>
           </div>
-          {estimatedCost !== undefined ? (
+          <div className="flex justify-between gap-6">
+            <span className="opacity-60">Uncached input</span>
+            <span>{formatTokens(uncachedConversationInputTokens)}</span>
+          </div>
+          <div className="flex justify-between gap-6">
+            <span className="opacity-60">Conversation output</span>
+            <span>{formatTokens(conversationOutputTokens)}</span>
+          </div>
+          {estimatedConversationCost !== undefined ? (
             <div className="flex justify-between gap-6">
               <span className="opacity-60">Est. cost</span>
-              <span>{formatUsd(estimatedCost)}</span>
+              <span>{formatUsd(estimatedConversationCost)}</span>
             </div>
           ) : null}
         </div>
@@ -2468,22 +2571,19 @@ export function SessionChatContent({
   // Note: SWR handles automatic fetching when sandbox becomes available
   // and caching/deduplication of requests
 
-  // Get token usage from the most recent assistant message (current context usage)
-  const tokenUsage = useMemo(() => {
-    // Find the last assistant message with usage metadata
-    for (let i = renderMessages.length - 1; i >= 0; i--) {
-      const message = renderMessages[i];
-      if (message?.role === "assistant" && message.metadata?.lastStepUsage) {
-        return {
-          inputTokens: message.metadata.lastStepUsage.inputTokens ?? 0,
-          cachedInputTokens:
-            message.metadata.lastStepUsage.cachedInputTokens ?? 0,
-          outputTokens: message.metadata.lastStepUsage.outputTokens ?? 0,
-        };
-      }
-    }
-    return { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
-  }, [renderMessages]);
+  const tokenUsage = useMemo(
+    () => getLatestContextUsage(renderMessages),
+    [renderMessages],
+  );
+  const conversationUsage = useMemo(
+    () => getConversationUsage(renderMessages),
+    [renderMessages],
+  );
+  const conversationEstimatedCost = useMemo(
+    () =>
+      getConversationEstimatedCost(renderMessages, selectedModelOption?.cost),
+    [renderMessages, selectedModelOption?.cost],
+  );
 
   // Detect pending AskUserQuestion tool calls
   const { hasPendingQuestion, pendingQuestionPart, questionToolCallId } =
@@ -4001,12 +4101,21 @@ export function SessionChatContent({
                             )}
                             <ContextUsageIndicator
                               inputTokens={tokenUsage.inputTokens}
-                              cachedInputTokens={tokenUsage.cachedInputTokens}
-                              outputTokens={tokenUsage.outputTokens}
+                              conversationInputTokens={
+                                conversationUsage.inputTokens
+                              }
+                              conversationCachedInputTokens={
+                                conversationUsage.cachedInputTokens
+                              }
+                              conversationOutputTokens={
+                                conversationUsage.outputTokens
+                              }
+                              estimatedConversationCost={
+                                conversationEstimatedCost
+                              }
                               contextLimit={
                                 contextLimit ?? DEFAULT_CONTEXT_LIMIT
                               }
-                              modelCost={selectedModelOption?.cost}
                             />
                           </div>
 

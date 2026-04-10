@@ -46,13 +46,6 @@ interface ModelUsage {
   toolCallCount: number;
 }
 
-interface PieSegment {
-  label: string;
-  value: number;
-  color: string;
-  detail?: string;
-}
-
 interface UsageResponse {
   usage: DailyUsageRow[];
   insights: UsageInsights;
@@ -133,7 +126,8 @@ function aggregateByModel(rows: DailyUsageRow[]): ModelUsage[] {
     }
   }
   return [...map.values()].toSorted(
-    (a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens),
+    (a, b) =>
+      b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens),
   );
 }
 
@@ -142,44 +136,14 @@ function displayModelId(modelId: string): string {
   return slashIndex >= 0 ? modelId.slice(slashIndex + 1) : modelId;
 }
 
-const CHART_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
+// Gray-scale dot classes: brightest first (top rank), darkest last
+const RANK_DOT_CLASSES = [
+  "bg-neutral-100 dark:bg-neutral-200",
+  "bg-neutral-300 dark:bg-neutral-400",
+  "bg-neutral-400 dark:bg-neutral-500",
+  "bg-neutral-500 dark:bg-neutral-600",
+  "bg-neutral-600 dark:bg-neutral-700",
 ];
-
-function polarToCartesian(
-  centerX: number,
-  centerY: number,
-  radius: number,
-  angleInDegrees: number,
-) {
-  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180;
-  return {
-    x: centerX + radius * Math.cos(angleInRadians),
-    y: centerY + radius * Math.sin(angleInRadians),
-  };
-}
-
-function buildPieSegment(
-  centerX: number,
-  centerY: number,
-  radius: number,
-  startAngle: number,
-  endAngle: number,
-) {
-  const startOuter = polarToCartesian(centerX, centerY, radius, endAngle);
-  const endOuter = polarToCartesian(centerX, centerY, radius, startAngle);
-  const largeArcFlag = endAngle - startAngle > 180 ? 1 : 0;
-  return [
-    `M ${centerX} ${centerY}`,
-    `L ${startOuter.x} ${startOuter.y}`,
-    `A ${radius} ${radius} 0 ${largeArcFlag} 0 ${endOuter.x} ${endOuter.y}`,
-    "Z",
-  ].join(" ");
-}
 
 // ── Sub-components ─────────────────────────────────────────────────────────
 
@@ -194,135 +158,31 @@ function StatItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function UsagePieChart({
-  segments,
-  centerLabel,
-  emptyLabel,
+/** Ranked list with grayscale dots — used for agent split, model usage, code churn */
+function RankedList({
+  title,
+  items,
 }: {
-  segments: PieSegment[];
-  centerLabel: string;
-  emptyLabel: string;
+  title: string;
+  items: { label: string; value: string; subtext?: string }[];
 }) {
-  const visibleSegments = segments.filter((s) => s.value > 0);
-  const total = visibleSegments.reduce((sum, s) => sum + s.value, 0);
-  const [hoveredSegment, setHoveredSegment] = useState<PieSegment | null>(null);
-  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
-  const size = 120;
-  const center = size / 2;
-  const radius = 60;
-  let currentAngle = 0;
-  const singleSegment =
-    visibleSegments.length === 1 ? visibleSegments[0] : undefined;
+  if (items.length === 0) return null;
 
   return (
-    <div className="grid gap-4 md:grid-cols-[120px,1fr]">
-      <div className="relative mx-auto h-28 w-28">
-        <div className="absolute inset-0 rounded-full ring-1 ring-border" />
-        {visibleSegments.length === 0 ? (
-          <div className="absolute inset-0 rounded-full bg-muted" />
-        ) : (
-          <svg
-            className="absolute inset-0 h-full w-full"
-            viewBox={`0 0 ${size} ${size}`}
-            role="img"
-            aria-label={centerLabel}
-          >
-            {singleSegment ? (
-              <circle
-                cx={center}
-                cy={center}
-                r={radius}
-                fill={singleSegment.color}
-                className="cursor-pointer"
-                onMouseEnter={() => setHoveredSegment(singleSegment)}
-                onMouseLeave={() => setHoveredSegment(null)}
-                onMouseMove={(event) => {
-                  const svg = event.currentTarget.ownerSVGElement;
-                  const rect = svg ? svg.getBoundingClientRect() : null;
-                  if (!rect) return;
-                  setTooltipPosition({
-                    x: event.clientX - rect.left,
-                    y: event.clientY - rect.top,
-                  });
-                }}
-              />
-            ) : (
-              visibleSegments.map((segment) => {
-                const startAngle = currentAngle;
-                const angle = (segment.value / total) * 360;
-                const endAngle = startAngle + angle;
-                currentAngle = endAngle;
-                const path = buildPieSegment(
-                  center,
-                  center,
-                  radius,
-                  startAngle,
-                  endAngle,
-                );
-                return (
-                  <path
-                    key={segment.label}
-                    d={path}
-                    fill={segment.color}
-                    className="cursor-pointer"
-                    onMouseEnter={() => setHoveredSegment(segment)}
-                    onMouseLeave={() => setHoveredSegment(null)}
-                    onMouseMove={(event) => {
-                      const svg = event.currentTarget.ownerSVGElement;
-                      const rect = svg ? svg.getBoundingClientRect() : null;
-                      if (!rect) return;
-                      setTooltipPosition({
-                        x: event.clientX - rect.left,
-                        y: event.clientY - rect.top,
-                      });
-                    }}
-                  />
-                );
-              })
-            )}
-          </svg>
-        )}
-        {hoveredSegment ? (
-          <div
-            className="pointer-events-none absolute z-10 w-fit whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs text-background shadow-sm"
-            style={{
-              left: Math.min(tooltipPosition.x + 12, size - 8),
-              top: Math.min(tooltipPosition.y + 12, size - 8),
-            }}
-          >
-            <div className="font-medium">{hoveredSegment.label}</div>
-            <div className="font-mono">
-              {formatTokens(hoveredSegment.value)} tokens
-            </div>
+    <div className="space-y-2.5">
+      <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
+      <div className="space-y-1.5">
+        {items.map((item, i) => (
+          <div key={item.label} className="flex items-center gap-2.5 text-sm">
+            <span
+              className={`h-2 w-2 shrink-0 rounded-full ${RANK_DOT_CLASSES[i % RANK_DOT_CLASSES.length]}`}
+            />
+            <span className="min-w-0 truncate">{item.label}</span>
+            <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+              {item.value}
+            </span>
           </div>
-        ) : null}
-      </div>
-      <div className="flex flex-col gap-1.5">
-        {visibleSegments.length === 0 ? (
-          <div className="text-sm text-muted-foreground">{emptyLabel}</div>
-        ) : (
-          visibleSegments.map((segment) => {
-            const share =
-              total > 0 ? Math.round((segment.value / total) * 100) : 0;
-            return (
-              <div
-                key={segment.label}
-                className="flex items-center gap-2 text-sm"
-              >
-                <span
-                  className="h-2 w-2 shrink-0 rounded-sm"
-                  style={{ backgroundColor: segment.color }}
-                />
-                <span className="min-w-0 truncate font-medium">
-                  {segment.label}
-                </span>
-                <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-                  {formatTokens(segment.value)} ({share}%)
-                </span>
-              </div>
-            );
-          })
-        )}
+        ))}
       </div>
     </div>
   );
@@ -400,9 +260,7 @@ function ProfileSidebar({
 
   if (!session?.user) return null;
 
-  const totalTokens = totals
-    ? totals.inputTokens + totals.outputTokens
-    : 0;
+  const totalTokens = totals ? totals.inputTokens + totals.outputTokens : 0;
 
   return (
     <div className="space-y-5">
@@ -500,48 +358,39 @@ export default function ProfilePage() {
     }, [data, fullData]);
 
   const mainTokens = mainTotals.inputTokens + mainTotals.outputTokens;
-  const subagentTokens = subagentTotals.inputTokens + subagentTotals.outputTokens;
+  const subagentTokens =
+    subagentTotals.inputTokens + subagentTotals.outputTokens;
   const hasUsage = totals.messageCount > 0;
 
-  const agentSegments: PieSegment[] = [
-    {
-      label: "Main agent",
-      value: mainTokens,
-      color: CHART_COLORS[0] ?? "var(--chart-1)",
-    },
-    {
-      label: "Subagents",
-      value: subagentTokens,
-      color: CHART_COLORS[1] ?? "var(--chart-2)",
-    },
-  ];
+  // Build ranked-list items for agent split
+  const agentItems = [
+    { label: "Main agent", value: formatTokens(mainTokens) },
+    { label: "Subagents", value: formatTokens(subagentTokens) },
+  ].filter((i) => i.value !== "0");
 
-  const modelSegments = (() => {
-    const totalsByModel = modelUsage.map((m) => ({
-      modelId: m.modelId,
-      provider: m.provider,
-      totalTokens: m.inputTokens + m.outputTokens,
-    }));
-    const topModels = totalsByModel
-      .filter((m) => m.totalTokens > 0)
-      .slice(0, 5);
-    const otherTotal = totalsByModel
-      .slice(5)
-      .reduce((sum, m) => sum + m.totalTokens, 0);
-    const segments: PieSegment[] = topModels.map((m, index) => ({
-      label: displayModelId(m.modelId),
-      value: m.totalTokens,
-      color: CHART_COLORS[index % CHART_COLORS.length] ?? "var(--chart-1)",
-    }));
-    if (otherTotal > 0) {
-      segments.push({
-        label: "Other",
-        value: otherTotal,
-        color: "var(--muted-foreground)",
-      });
-    }
-    return segments;
-  })();
+  // Build ranked-list items for model usage (top 5)
+  const modelItems = modelUsage.slice(0, 5).map((m) => ({
+    label: displayModelId(m.modelId),
+    value: formatTokens(m.inputTokens + m.outputTokens),
+  }));
+
+  // Build ranked-list items for code churn
+  const codeChurnItems = data?.insights
+    ? [
+        {
+          label: "Lines added",
+          value: data.insights.code.linesAdded.toLocaleString(),
+        },
+        {
+          label: "Lines removed",
+          value: data.insights.code.linesRemoved.toLocaleString(),
+        },
+        {
+          label: "Total changed",
+          value: data.insights.code.totalLinesChanged.toLocaleString(),
+        },
+      ]
+    : [];
 
   const dateRangeLabel = dateRange?.from
     ? (() => {
@@ -575,7 +424,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Right content */}
-      <div className="min-w-0 flex-1 space-y-6">
+      <div className="min-w-0 flex-1 space-y-8">
         {/* Activity grid */}
         <div>
           <div className="mb-3 flex items-center justify-between">
@@ -605,11 +454,12 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {/* Usage breakdown */}
+        {/* Usage breakdown — ranked lists in a grid */}
         {isLoading ? (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Skeleton className="h-36 rounded-xl" />
-            <Skeleton className="h-36 rounded-xl" />
+          <div className="grid gap-6 sm:grid-cols-3">
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-28 rounded-xl" />
           </div>
         ) : error ? (
           <p className="text-sm text-muted-foreground">
@@ -617,28 +467,16 @@ export default function ProfilePage() {
           </p>
         ) : (
           <>
-            {/* Pie charts */}
-            {(hasUsage || modelUsage.length > 0) && (
-              <div className="grid gap-6 lg:grid-cols-2">
+            {(hasUsage || modelItems.length > 0 || codeChurnItems.length > 0) && (
+              <div className="grid gap-8 sm:grid-cols-3">
                 {hasUsage && (
-                  <div className="space-y-2">
-                    <h3 className="text-sm font-medium">Agent split</h3>
-                    <UsagePieChart
-                      segments={agentSegments}
-                      centerLabel="Total tokens"
-                      emptyLabel="No agent usage"
-                    />
-                  </div>
+                  <RankedList title="Agent split" items={agentItems} />
                 )}
-                {modelUsage.length > 0 && (
-                  <div className="space-y-2">
-                    <h3 className="text-sm font-medium">Usage by model</h3>
-                    <UsagePieChart
-                      segments={modelSegments}
-                      centerLabel="Total tokens"
-                      emptyLabel="No model usage"
-                    />
-                  </div>
+                {modelItems.length > 0 && (
+                  <RankedList title="Top models" items={modelItems} />
+                )}
+                {codeChurnItems.length > 0 && (
+                  <RankedList title="Code churn" items={codeChurnItems} />
                 )}
               </div>
             )}

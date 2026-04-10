@@ -281,7 +281,7 @@ export function ContributionChart({
                     !isSelected &&
                     "grayscale opacity-35 saturate-0",
                   isSelected &&
-                    "ring-2 ring-emerald-700/60 ring-offset-1 shadow-[0_0_0_1px_rgba(255,255,255,0.9)] dark:ring-emerald-100/80 dark:shadow-[0_0_0_1px_rgba(3,7,18,0.9)]",
+                    "ring-2 ring-neutral-700/60 ring-offset-1 shadow-[0_0_0_1px_rgba(255,255,255,0.9)] dark:ring-neutral-100/80 dark:shadow-[0_0_0_1px_rgba(3,7,18,0.9)]",
                 )}
                 style={{
                   gridColumn: wi + 2,
@@ -299,7 +299,7 @@ export function ContributionChart({
                     !isSelected &&
                     "grayscale opacity-35 saturate-0",
                   isSelected &&
-                    "ring-2 ring-emerald-700/60 ring-offset-1 shadow-[0_0_0_1px_rgba(255,255,255,0.9)] dark:ring-emerald-100/80 dark:shadow-[0_0_0_1px_rgba(3,7,18,0.9)]",
+                    "ring-2 ring-neutral-700/60 ring-offset-1 shadow-[0_0_0_1px_rgba(255,255,255,0.9)] dark:ring-neutral-100/80 dark:shadow-[0_0_0_1px_rgba(3,7,18,0.9)]",
                 )}
                 style={{
                   gridColumn: wi + 2,

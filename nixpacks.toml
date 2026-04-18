@@ -5,8 +5,9 @@ cmds = ["bun install"]
 cmds = ["bun run build --filter=web"]
 
 [start]
-cmd = "cd apps/web && node .next/standalone/apps/web/server.js"
+cmd = "cd apps/web && bun run start"
 
 [variables]
 NODE_ENV = "production"
 NEXT_TELEMETRY_DISABLED = "1"
+PORT = "3000"
